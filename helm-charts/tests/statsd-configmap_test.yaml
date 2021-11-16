@@ -1,0 +1,47 @@
+suite: app-tests
+templates:
+  - statsd-configmap.yaml
+tests:
+  - it: should render kind type right
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      monitoring:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+
+  - it: should not render configmap
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      monitoring:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render metadata right
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      config:
+        ENV: stage
+      monitoring:
+        enabled: true
+    asserts:
+      - equal:
+          path: metadata
+          value:
+            name: test-release-statsd
+            namespace: baz
+            labels:
+              app: test-release
+              env: stage
+              chart: example-api-1.0.0

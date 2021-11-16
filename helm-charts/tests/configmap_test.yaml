@@ -1,0 +1,47 @@
+suite: app-tests
+templates:
+  - configmap.yaml
+tests:
+  - it: should render kind type right
+    release:
+      name: test-release
+      namespace: baz
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+
+  - it: should render metadata right
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      config:
+        ENV: stage
+    asserts:
+      - equal:
+          path: metadata
+          value:
+            name: test-release
+            namespace: baz
+            labels:
+              app: test-release
+              env: stage
+              chart: example-api-1.0.0
+
+  - it: should render config right
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      config:
+        ENV: stage
+        foo: bar
+    asserts:
+      - equal:
+          path: data.ENV
+          value: stage
+      - equal:
+          path: data.FOO
+          value: bar

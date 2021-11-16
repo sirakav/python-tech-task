@@ -1,0 +1,85 @@
+## config
+## ref : https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap
+##
+config:
+  ENV: prod
+  CHANGE_CAUSE: init
+
+  # App configuration
+  TESTING: false
+  DEBUG: false
+
+## secret
+## ref : https://kubernetes.io/docs/concepts/configuration/secret/
+##
+secret:
+  stringData:
+    SECRET_KEY: secret
+
+## deployment
+## ref: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
+##
+replicas:
+  gunicorn: 1
+
+## image
+## ref: https://hub.docker.com/r/rocketchat/rocket.chat/tags
+##
+image:
+  pullPolicy: IfNotPresent
+  gunicorn:
+    repository: gunicorn
+    tag: latest
+  statsd:
+    repository: prom/statsd-exporter
+    tag: v0.20.2
+
+## imageCredentials
+## ref : https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+##
+imageCredentials:
+  enabled: true
+  registry: docker.registry.com
+  username: user
+  password: pass
+
+## resource requests and limits
+## ref: http://kubernetes.io/docs/user-guide/compute-resources/
+##
+resources:
+  gunicorn:
+    requests:
+      memory: 128Mi
+      cpu: 200m
+    limits:
+      memory: 256Mi
+      cpu: 500m
+  statsd:
+    requests:
+      memory: 32Mi
+      cpu: 25m
+    limits:
+      memory: 64Mi
+      cpu: 50m
+
+## ingress
+## ref : http://kubernetes.io/docs/user-guide/ingress/
+##
+ingress:
+  className: "nginx"
+  rules:
+    - host: prod.example.com
+      paths:
+        - path: /
+          serviceName: gunicorn
+          servicePortName: gunicorn
+
+## service
+## 
+service:
+  type: ClusterIP
+
+## Monitoring
+##
+monitoring:
+  enabled: true

@@ -1,0 +1,10 @@
+{{ .Chart.Name }} is installed
+
+Release name is - {{ .Release.Name }}
+Release namespace is - {{ .Release.Namespace }}
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+  $ kubectl get all -n {{ .Release.Namespace }}

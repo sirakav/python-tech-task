@@ -1,0 +1,116 @@
+suite: app-tests
+templates:
+  - ingress.yaml
+tests:
+  - it: should render kind type right
+    release:
+      name: test-release
+      namespace: baz
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress
+
+  - it: should render metadata right
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      config.ENV: stage
+    asserts:
+      - equal:
+          path: metadata
+          value:
+            name: test-release
+            namespace: baz
+            labels:
+              app: test-release
+              env: stage
+              chart: example-api-1.0.0
+
+  - it: should render Ingress right
+    set:
+      ingress:
+        rules:
+          - host: test.host
+            paths:
+              - path: /test
+                serviceName: demo
+                servicePortName: test
+      config:
+        ENV: stage
+    release:
+      name: test-release
+      namespace: baz
+    asserts:
+      - equal:
+          path: spec.rules[0]
+          value:
+            host: test.host
+            http:
+              paths:
+                - backend:
+                    service:
+                      name: demo
+                      port:
+                        name: test
+                  path: /test
+                  pathType: "Prefix"
+
+  - it: should render Ingress with multiple hosts and paths right
+    set:
+      ingress:
+        rules:
+          - host: prod.env
+            paths:
+              - path: /health
+                serviceName: health
+                servicePortName: health
+              - path: /config
+                serviceName: config
+                servicePortName: health
+          - host: staging.env
+            paths:
+              - path: /test
+                serviceName: demo
+                servicePortName: test
+      config:
+        ENV: stage
+    release:
+      name: test-release
+      namespace: baz
+    asserts:
+      - equal:
+          path: spec.rules[0]
+          value:
+            host: prod.env
+            http:
+              paths:
+                - backend:
+                    service:
+                      name: health
+                      port:
+                        name: health
+                  path: /health
+                  pathType: "Prefix"
+                - backend:
+                    service:
+                      name: config
+                      port:
+                        name: health
+                  path: /config
+                  pathType: "Prefix"
+      - equal:
+          path: spec.rules[1]
+          value:
+            host: staging.env
+            http:
+              paths:
+                - backend:
+                    service:
+                      name: demo
+                      port:
+                        name: test
+                  path: /test
+                  pathType: "Prefix"

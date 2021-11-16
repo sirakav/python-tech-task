@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: {{ include "meta.name" $ }}-gunicorn
+  labels: {{ include "meta.labels" $ | nindent 4 }}
+  annotations:
+    kubernetes.io/change-cause: {{ .Values.config.CHANGE_CAUSE }}
+    checksum/config: {{ include "configChecksum" . }}
+    checksum/secret: {{ include "secretChecksum" . }}
+spec:
+  replicas: {{ .Values.replicas.gunicorn }}
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 600
+  # Ref: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: {{ include "meta.name" $ }}-gunicorn
+  template:
+    metadata:
+      labels:
+        app: {{ include "meta.name" $ }}-gunicorn
+      annotations:
+        kubernetes.io/change-cause: {{ .Values.config.CHANGE_CAUSE }}
+        checksum/config: {{ include "configChecksum" . }}
+        checksum/secret: {{ include "secretChecksum" . }}
+    spec:
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+      imagePullSecrets:
+        - name: {{ include "meta.name" $ }}-image-pull-secret
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: "app"
+                  operator: In
+                  values:
+                  - {{ include "meta.name" $ }}-gunicorn
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+        - name: gunicorn
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          image: {{ .Values.image.gunicorn.repository }}:{{ .Values.image.gunicorn.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources: {{ toYaml .Values.resources.gunicorn | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "meta.name" $ }}
+            - secretRef:
+                name: {{ include "meta.name" $ }}
+          ports:
+            - name: gunicorn
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              port: gunicorn
+              path: "/health"
+            failureThreshold: 3
+            periodSeconds: 10
+            successThreshold: 1
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c 
+                - "pidof -x gunicorn"
+            failureThreshold: 3
+            periodSeconds: 10
+            successThreshold: 1
+          startupProbe:
+            httpGet:
+              port: gunicorn
+              path: "/health"
+            failureThreshold: 30
+            periodSeconds: 10
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+        {{- if .Values.monitoring.enabled }}
+        - name: statsd
+          image: {{ .Values.image.statsd.repository }}:{{ .Values.image.statsd.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          args:
+            - "--statsd.mapping-config"
+            - "/tmp/statsd.conf"
+          resources: {{ toYaml .Values.resources.statsd | nindent 12 }}
+          ports:
+            - name: statsd
+              containerPort: 9125
+            - name: exporter
+              containerPort: 9102
+          readinessProbe:
+            httpGet:
+              port: exporter
+              path: "/"
+            initialDelaySeconds: 5
+            failureThreshold: 3
+            periodSeconds: 10
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              port: exporter
+              path: "/"
+            initialDelaySeconds: 5
+            failureThreshold: 3
+            periodSeconds: 10
+            successThreshold: 1
+          volumeMounts:
+            - mountPath: /tmp
+              name: statsd-config
+              readOnly: true
+        {{- end }}
+      volumes:
+        - emptyDir: {}
+          name: tmp
+      {{- if .Values.monitoring.enabled }}
+        - name: statsd-config
+          configMap:
+            name: {{ include "meta.name" $ }}-statsd
+            items:
+              - key: statsd.conf
+                path: statsd.conf
+      {{- end }}

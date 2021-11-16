@@ -1,0 +1,141 @@
+---
+stages:
+  - style
+  - test
+  - build
+  - deploy_staging
+  - deploy_prod
+  - rollback_prod
+
+variables:
+  KUBECONFIG: ~/kube/config
+  RELEASE_NAME: example-api
+  STAGING_NAMESPACE: example-api-staging
+  PROD_NAMESPACE: example-api-prod
+
+style:
+  stage: style
+  image: python:3.9.7-slim-bullseye
+  variables:
+    PRE_COMMIT_HOME: ${CI_PROJECT_DIR}/.cache/pre-commit
+  cache:
+    paths:
+      - ${PRE_COMMIT_HOME}
+  script:
+    - apt update
+    - apt install -y git
+    - pip3 install -r requirements-dev.txt
+    - pre-commit run --all-files
+
+test_app:
+  image:
+    name: "python:3.9.7-slim-bullseye"
+  script:
+    - "apt update"
+    - "pip3 install -r requirements.txt"
+    - "pip3 install pytest"
+    - "cp .env.dist .env"
+    - "pytest"
+  stage: test
+
+test_helm_charts:
+  image: jgreat/helm-unittest:v2.11.0
+  stage: test
+  script:
+    - helm unittest --color $CI_PROJECT_DIR/helm-charts
+
+lint_helm_charts:
+  image: 
+    name: stackrox/kube-linter:0.2.5-8-g8231fb5924-alpine
+    entrypoint: ["/bin/sh", "-c"]
+  stage: test
+  before_script:
+    - cd $CI_PROJECT_DIR
+  script:
+    - /kube-linter lint helm-charts
+
+build_gunicorn:
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  stage: build
+  before_script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"${IMAGE_REGISTRY_HOST}\":{\"auth\":\"$(printf "%s:%s" "${IMAGE_REGISTRY_USER}" "${IMAGE_REGISTRY_USER_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    - cd $CI_PROJECT_DIR
+  variables:
+    IMAGE: $IMAGE_REGISTRY_HOST/gunicorn:$CI_COMMIT_SHA
+  script:
+    - >-
+      /kaniko/executor
+      --context ./
+      --dockerfile Dockerfile
+      --destination $IMAGE
+  only:
+    refs:
+      - master
+
+deploy_staging:
+  image: dtzar/helm-kubectl:3.7
+  stage: deploy_staging
+  before_script:
+    - mkdir -p ~/.kube/
+    - echo $PROD_KUBE_CONFIG | base64 -d > $KUBECONFIG
+    - cd $CI_PROJECT_DIR/helm-charts
+  script:
+    - |
+      helm upgrade --install \
+      -n $STAGING_NAMESPACE -f values-staging.yaml \
+      --set-string config.CHANGE_CAUSE=$CI_COMMIT_SHA \
+      --set-string imageCredentials.username=$IMAGE_REGISTRY_USER \
+      --set-string imageCredentials.password=$IMAGE_REGISTRY_USER_PASSWORD \
+      --set-string image.gunicorn.tag=$CI_COMMIT_SHA \
+      $RELEASE_NAME .
+    - helm history $RELEASE_NAME --max 10 -n $STAGING_NAMESPACE
+    - kubectl get all -n $STAGING_NAMESPACE
+    - kubectl get ing -n $STAGING_NAMESPACE
+  only:
+    refs:
+      - master
+
+deploy_prod:
+  image: dtzar/helm-kubectl:3.7
+  stage: deploy_prod
+  before_script:
+    - mkdir -p ~/.kube/
+    - echo $PROD_KUBE_CONFIG | base64 -d > $KUBECONFIG
+    - cd $CI_PROJECT_DIR/helm-charts
+  script:
+    - |
+      helm upgrade --install \
+      -n $PROD_NAMESPACE -f values.yaml \
+      --set-string config.CHANGE_CAUSE=$CI_COMMIT_SHA \
+      --set-string imageCredentials.username=$IMAGE_REGISTRY_USER \
+      --set-string imageCredentials.password=$IMAGE_REGISTRY_USER_PASSWORD \
+      --set-string image.gunicorn.tag=$CI_COMMIT_SHA \
+      $RELEASE_NAME .
+    - helm history $RELEASE_NAME --max 10 -n $PROD_NAMESPACE
+    - kubectl get all -n $PROD_NAMESPACE
+    - kubectl get ing -n $PROD_NAMESPACE
+  when: manual
+  only:
+    refs:
+      - master
+
+rollback_prod:
+  image: dtzar/helm-kubectl:3.7
+  stage: rollback_prod
+  before_script:
+    - mkdir -p ~/.kube/
+    - echo $PROD_KUBE_CONFIG | base64 -d > $KUBECONFIG
+    - cd $CI_PROJECT_DIR/helm-charts
+  script:
+    - helm history $RELEASE_NAME --max 10 -n $PROD_NAMESPACE
+    - helm rollback $RELEASE_NAME -n $PROD_NAMESPACE
+    - helm history $RELEASE_NAME --max 10 -n $PROD_NAMESPACE
+    - kubectl get all -n $PROD_NAMESPACE
+    - kubectl get ing -n $PROD_NAMESPACE
+  when: manual
+  only:
+    refs:
+      - master

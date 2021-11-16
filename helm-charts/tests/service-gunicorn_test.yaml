@@ -1,0 +1,74 @@
+suite: app-tests
+templates:
+  - service-gunicorn.yaml
+tests:
+  - it: should render metadata right
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      config.ENV: stage
+    asserts:
+      - equal:
+          path: metadata
+          value:
+            name: gunicorn
+            namespace: baz
+            labels:
+              app: test-release
+              env: stage
+              chart: example-api-1.0.0
+
+  - it: should render selectors right
+    release:
+      name: test-release
+      namespace: baz
+    asserts:
+      - equal:
+          path: spec.selector
+          value:
+            app: test-release-gunicorn
+
+  - it: should render ports right when monitoring enabled
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      monitoring:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.ports[1]
+          value:
+            name: exporter
+            port: 9102
+            protocol: TCP
+            targetPort: exporter
+
+  - it: should render ports right when monitoring disabled
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      monitoring:
+        enabled: false
+    asserts:
+      - equal:
+          path: spec.ports
+          value:
+            - name: gunicorn
+              port: 8000
+              protocol: TCP
+              targetPort: gunicorn
+
+  - it: should set service type
+    release:
+      name: test-release
+      namespace: baz
+    set:
+      service:
+        type: ClusterIP
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
